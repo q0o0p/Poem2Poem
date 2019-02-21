@@ -1,3 +1,4 @@
+import re
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras.layers as L
@@ -32,7 +33,7 @@ class Seq2SeqModel:
         self._out_tok_count = out_tok_count
 
         # Create our architecture in default TF graph
-        with tf.name_scope('Seq2SeqModel'):
+        with tf.name_scope('Seq2SeqModel') as scope_name:
 
             # Placeholders
             self._inp = tf.placeholder(tf.int32, [None, None]) # [B, T]
@@ -57,6 +58,13 @@ class Seq2SeqModel:
 
             # Next state and logits for 'infer' function
             self._next_state_and_logits = self._decode_step() # [B, hid size], [B, out toks]
+
+
+            # All trainable variables
+
+            # Need to escape scope name because 'tf.trainable_variables' uses 're.match'
+            # and outer scope can contain '.' in its name.
+            self._trainable_variables = tf.trainable_variables(re.escape(scope_name))
 
 
     def _encode(self):
