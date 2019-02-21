@@ -67,6 +67,16 @@ class Seq2SeqModel:
             self._trainable_variables = tf.trainable_variables(re.escape(scope_name))
 
 
+    @property
+    def input(self):
+        return self._inp
+
+
+    @property
+    def trainable_variables(self):
+        return self._trainable_variables
+
+
     def _encode(self):
 
         # self._inp: [B, T]
