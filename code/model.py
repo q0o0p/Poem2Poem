@@ -21,11 +21,13 @@ class Seq2SeqModel:
 
     def __init__(self,
                  inp_eos_id, inp_tok_count,
-                 out_tok_count,
+                 out_bos_id, out_eos_id, out_tok_count,
                  emb_size, hid_size):
 
         # Set fields
         self._inp_eos_id = inp_eos_id
+        self._out_bos_id = out_bos_id
+        self._out_eos_id = out_eos_id
         self._out_tok_count = out_tok_count
 
         # Create our architecture in default TF graph
@@ -87,3 +89,54 @@ class Seq2SeqModel:
             out_logits = self._dec_logits(dec_out) # [B, out toks]
 
         return dec_state, out_logits
+
+
+    def _compute_logits(self, target_tok_ids, target_length):
+
+        # target_tok_ids: [B, T]
+        # target_length: [B]
+
+        batch_size = tf.shape(target_tok_ids)[0]
+
+        target_emb = self._emb_out(target_tok_ids[:, :-1]) # [B, T-1, emb size]
+
+        # dec_seq: [B, T, hid size]
+        dec_seq, _ = tf.nn.dynamic_rnn(self._dec,
+                                       target_emb,
+                                       sequence_length = target_length - 1,
+                                       initial_state = self._dec_prev_state)
+
+        logits_seq = self._dec_logits(dec_seq) # [B, T - 1, out toks]
+
+        # Predict BOS as first logits
+        bos_one_hot = tf.one_hot(tf.fill([1], self._out_bos_id),
+                                 self._out_tok_count) # [1, out toks]
+        # First logits will only have '0' (from log(1)) and '-inf' (from log(0)) values:
+        first_logits = tf.log(bos_one_hot) # [1, out toks]
+
+        first_logits = tf.broadcast_to(first_logits[tf.newaxis],
+                                       [batch_size, 1, self._out_tok_count]) # [B, 1, out toks]
+
+        return tf.concat((first_logits, logits_seq), axis = 1) # [B, T, out toks]
+
+
+    def compute_loss(self, target_tok_ids):
+
+        # target_tok_ids: [B, T]
+
+        time_steps = tf.shape(target_tok_ids)[1]
+
+        target_length = _infer_length(target_tok_ids, self._out_eos_id) # [B, T]
+        target_mask = tf.sequence_mask(target_length,
+                                       maxlen = time_steps) # [B, T]
+
+        logits_seq = self._compute_logits(target_tok_ids, target_length) # [B, T, out toks]
+
+        logits_seq_masked = tf.boolean_mask(logits_seq, target_mask) # [mask non-zero count, out toks]
+        target_tok_ids_masked = tf.boolean_mask(target_tok_ids, target_mask) # [mask non-zero count]
+
+        # loss: [mask non-zero count]
+        loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels = target_tok_ids_masked,
+                                                              logits = logits_seq_masked)
+
+        return tf.reduce_mean(loss)
