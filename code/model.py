@@ -143,7 +143,7 @@ class Seq2SeqModel:
         return tf.reduce_mean(loss)
 
 
-    def infer(self, inp_tok_ids, max_out_tok_count):
+    def infer(self, inp_tok_ids, max_out_tok_count = None):
 
         # inp_tok_ids: [B, T]
 
@@ -157,7 +157,7 @@ class Seq2SeqModel:
                                dtype = np.int32)]
         finished = np.zeros(seq_count, dtype = bool)
 
-        while len(out_tok_ids) - 1 < max_out_tok_count:
+        while len(out_tok_ids) - 1 != max_out_tok_count:
 
             state, logits = sess.run(self._next_state_and_logits,
                                      { self._dec_prev_state: state,
