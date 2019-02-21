@@ -1,3 +1,4 @@
+import numpy as np
 import tensorflow as tf
 import tensorflow.keras.layers as L
 
@@ -54,7 +55,7 @@ class Seq2SeqModel:
             # Set initial decoder state:
             self._dec_prev_state = self._encode() # [B, hid size]
 
-            # Next state and logits
+            # Next state and logits for 'infer' function
             self._next_state_and_logits = self._decode_step() # [B, hid size], [B, out toks]
 
 
@@ -140,3 +141,29 @@ class Seq2SeqModel:
                                                               logits = logits_seq_masked)
 
         return tf.reduce_mean(loss)
+
+
+    def infer(self, inp_tok_ids, max_out_tok_count):
+
+        # inp_tok_ids: [B, T]
+
+        sess = tf.get_default_session()
+
+        state = sess.run(self._dec_prev_state, { self._inp: inp_tok_ids })
+
+        out_tok_ids = [np.full(len(inp_tok_ids),
+                               fill_value = self._out_bos_id,
+                               dtype = np.int32)]
+
+        while len(out_tok_ids) - 1 < max_out_tok_count:
+
+            state, logits = sess.run(self._next_state_and_logits,
+                                     { self._dec_prev_state: state,
+                                       self._prev_token: out_tok_ids[-1] })
+            next_out_tok_id = np.argmax(logits, axis = -1)
+
+            out_tok_ids.append(next_out_tok_id)
+
+        out_tok_ids = np.hstack([id[:, np.newaxis] for id in out_tok_ids])
+
+        return out_tok_ids
