@@ -151,9 +151,11 @@ class Seq2SeqModel:
 
         state = sess.run(self._dec_prev_state, { self._inp: inp_tok_ids })
 
-        out_tok_ids = [np.full(len(inp_tok_ids),
+        seq_count = len(inp_tok_ids)
+        out_tok_ids = [np.full(seq_count,
                                fill_value = self._out_bos_id,
                                dtype = np.int32)]
+        finished = np.zeros(seq_count, dtype = bool)
 
         while len(out_tok_ids) - 1 < max_out_tok_count:
 
@@ -163,6 +165,10 @@ class Seq2SeqModel:
             next_out_tok_id = np.argmax(logits, axis = -1)
 
             out_tok_ids.append(next_out_tok_id)
+
+            finished |= next_out_tok_id == self._out_eos_id
+            if finished.sum() == seq_count:
+                break # Early exit if all sequences finished
 
         out_tok_ids = np.hstack([id[:, np.newaxis] for id in out_tok_ids])
 
