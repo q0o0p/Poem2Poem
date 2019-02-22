@@ -20,6 +20,10 @@ def usage_error(message):
           file = sys.stderr)
     print('''
 Usage: python main.py --train-file=<train file>
+
+Train file must be UTF-8 encoded text file where each
+line specifies token sequence pair separated with "|".
+Tokens in each sequence are separated with whitespace.
 '''.strip(),
           file = sys.stderr)
     sys.exit(1)
