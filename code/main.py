@@ -192,3 +192,38 @@ opt = tf.train.AdamOptimizer()
 train_step = opt.minimize(loss, var_list = model.trainable_variables)
 
 sess.run(tf.variables_initializer(opt.variables()))
+
+
+
+# Train model
+# --------------------
+
+print('Begin model training...')
+
+batch_size = 32
+avg_loss_steps = 10
+
+batches_per_epoch = (len(train_tok_ids_pairs) + batch_size - 1) // batch_size
+
+loss_history = []
+for step_idx, (input_matrix, target_matrix) in enumerate(iterate_train_minibatches(batch_size)):
+
+    step_loss, _ = sess.run([loss, train_step], { model.input: input_matrix,
+                                                  target: target_matrix })
+
+    loss_history.append(step_loss)
+
+    avg_step_loss = np.mean(loss_history[-avg_loss_steps:])
+
+    print(' step {} of {} ({:.0f}%), loss: {:.2f}'
+          .format(step_idx + 1,
+                  batches_per_epoch,
+                  100 * (step_idx + 1) / batches_per_epoch,
+                  avg_step_loss) + ' ' * 5,
+          end = '\r')
+
+assert len(loss_history) == batches_per_epoch
+print(' ' * 40, end = '\r')
+print(' last loss: {:.2f}'.format(avg_step_loss))
+
+print(' training finished.')
