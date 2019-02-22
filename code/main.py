@@ -227,3 +227,26 @@ print(' ' * 40, end = '\r')
 print(' last loss: {:.2f}'.format(avg_step_loss))
 
 print(' training finished.')
+
+
+
+# Infer using model
+# --------------------
+
+print('Inference using model:')
+print(' processing standard input...')
+
+for line in sys.stdin:
+
+    line_toks = [tok for tok in line.split()
+                 if tok in tok_to_id_pair[SOURCE_PAIR_IDX]]
+    line_tok_ids = np.array([tok_to_id_pair[SOURCE_PAIR_IDX][tok] for tok in line_toks], dtype = np.int32)
+
+    line_matrix = tok_ids_seq_to_matrix(line_tok_ids[np.newaxis])
+    inferred_matrix = model.infer(line_matrix)
+    [inferred_line] = matrix_to_lines(inferred_matrix, tok_list_pair[TARGET_PAIR_IDX])
+
+    print(' {} -> {}'.format(' '.join(line_toks),
+                             inferred_line))
+
+print(' processing finised.')
