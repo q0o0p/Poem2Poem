@@ -156,3 +156,39 @@ def iterate_train_minibatches(batch_size):
         batch_tok_ids_pairs = train_tok_ids_pairs[batch_indices]
         batch_matrix_pair = tuple(map(tok_ids_seq_to_matrix, zip(*batch_tok_ids_pairs)))
         yield batch_matrix_pair
+
+
+
+# Create model and optimizer
+# ------------------------------
+
+print('Creating model and optimizer...')
+
+print(' importing TensorFlow...')
+import tensorflow as tf
+
+print(' creating session...')
+sess = tf.InteractiveSession()
+
+print(' creating model...')
+from model import Seq2SeqModel
+
+model = Seq2SeqModel(inp_eos_id = eos_tok_id,
+                     inp_tok_count = len(tok_list_pair[SOURCE_PAIR_IDX]),
+                     out_bos_id = bos_tok_id,
+                     out_eos_id = eos_tok_id,
+                     out_tok_count = len(tok_list_pair[TARGET_PAIR_IDX]),
+                     emb_size = 128,
+                     hid_size = 256)
+
+sess.run(tf.variables_initializer(model.trainable_variables))
+
+print(' creating loss...')
+target = tf.placeholder(tf.int32, [None, None])
+loss = model.compute_loss(target)
+
+print(' creating optimizer...')
+opt = tf.train.AdamOptimizer()
+train_step = opt.minimize(loss, var_list = model.trainable_variables)
+
+sess.run(tf.variables_initializer(opt.variables()))
