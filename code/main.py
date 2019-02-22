@@ -48,3 +48,30 @@ if train_file is None:
     usage_error('"--train-file" option must be specified.')
 if not os.path.isfile(train_file):
     usage_error('"--train-file" option must specify existing file.')
+
+
+# Read train file
+# --------------------
+
+print('Reading train text pairs...')
+
+train_text_pairs = []
+
+with open(train_file, encoding = 'utf-8') as f:
+    for line_idx, line in enumerate(f):
+
+        text_pair = tuple(t.strip() for t in line.split('|'))
+
+        if len(text_pair) == 1:
+            print('Train file line {} does not contain text pair separator "|": "{}"'
+                  .format(line_idx + 1, line.rstrip('\n')), file = sys.stderr)
+            sys.exit(1)
+
+        if len(text_pair) > 2:
+            print('Train file line {} contains multiple text pair separators "|": "{}"'
+                  .format(line_idx + 1, line.rstrip('\n')), file = sys.stderr)
+            sys.exit(1)
+
+        train_text_pairs.append(text_pair)
+
+print(' {} text pairs read.'.format(len(train_text_pairs)))
