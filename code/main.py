@@ -113,3 +113,46 @@ train_tok_ids_pairs = np.array([tuple(np.array([tok_to_id[tok] for tok in toks],
                                       for tok_to_id, toks in zip(tok_to_id_pair, toks_pair))
                                 for toks_pair in train_toks_pairs], dtype = object)
 del train_toks_pairs
+
+
+# Helper functions for model training
+# ----------------------------------------
+
+def tok_ids_seq_to_matrix(tok_ids_seq):
+
+    max_tok_count = max(map(len, tok_ids_seq))
+    matrix_width = max_tok_count + 2 # For BOS and EOS
+
+    matrix = np.full([len(tok_ids_seq), matrix_width],
+                      fill_value = eos_tok_id,
+                      dtype = np.int32)
+    matrix[:, 0] = bos_tok_id
+
+    for row_idx, tok_ids in enumerate(tok_ids_seq):
+        matrix[row_idx, 1 : 1 + len(tok_ids)] = tok_ids
+
+    return matrix
+
+def matrix_to_lines(matrix, tok_list):
+
+    assert np.all(matrix[:, 0] == bos_tok_id)
+
+    lines = []
+    for tok_ids in matrix[:, 1:]:
+        [eos_indices] = np.where(tok_ids == eos_tok_id)
+        if len(eos_indices) != 0:
+            tok_ids = tok_ids[:eos_indices[0]]
+        lines.append(' '.join(tok_list[id] for id in tok_ids))
+
+    return lines
+
+def iterate_train_minibatches(batch_size):
+
+    N = len(train_tok_ids_pairs)
+    indices = np.random.permutation(np.arange(N))
+
+    for start in range(0, N, batch_size):
+        batch_indices = indices[start : start + batch_size]
+        batch_tok_ids_pairs = train_tok_ids_pairs[batch_indices]
+        batch_matrix_pair = tuple(map(tok_ids_seq_to_matrix, zip(*batch_tok_ids_pairs)))
+        yield batch_matrix_pair
