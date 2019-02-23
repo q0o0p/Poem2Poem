@@ -22,10 +22,13 @@ def usage_error(message):
           file = sys.stderr)
     print('''
 Usage: python main.py --train-file=<train file>
+                     [--train-epochs=<epoch count>]
 
 Train file must be UTF-8 encoded text file where each
 line specifies token sequence pair separated with "|".
 Tokens in each sequence are separated with whitespace.
+
+If not specified, train epoch count is 1.
 '''.strip(),
           file = sys.stderr)
     sys.exit(1)
@@ -33,7 +36,8 @@ Tokens in each sequence are separated with whitespace.
 try:
     options, args = getopt.getopt(sys.argv[1:],
                                   shortopts = '',
-                                  longopts = ['train-file='])
+                                  longopts = ['train-file=',
+                                              'train-epochs='])
 except getopt.GetoptError as err:
     usage_error(err)
 
@@ -50,6 +54,15 @@ if train_file is None:
     usage_error('"--train-file" option must be specified.')
 if not os.path.isfile(train_file):
     usage_error('"--train-file" option must specify existing file.')
+
+train_epochs = options_dict.get('--train-epochs', '1')
+if train_epochs == '' or not all('0' <= ch <= '9' for ch in train_epochs):
+    usage_error('"--train-epochs" option must specify a decimal number if present, not "{}".'
+                .format(train_epochs))
+
+train_epochs = int(train_epochs)
+if train_epochs == 0:
+    usage_error('"--train-epochs" option must not be zero.')
 
 
 # Read train file
@@ -206,25 +219,34 @@ avg_loss_steps = 10
 batches_per_epoch = (len(train_tok_ids_pairs) + batch_size - 1) // batch_size
 
 loss_history = []
-for step_idx, (input_matrix, target_matrix) in enumerate(iterate_train_minibatches(batch_size)):
+for epoch_idx in range(train_epochs):
 
-    step_loss, _ = sess.run([loss, train_step], { model.input: input_matrix,
-                                                  target: target_matrix })
+    print(' epoch {} of {}...'.format(epoch_idx + 1, train_epochs))
 
-    loss_history.append(step_loss)
+    for step_idx, (input_matrix, target_matrix) in enumerate(iterate_train_minibatches(batch_size)):
 
-    avg_step_loss = np.mean(loss_history[-avg_loss_steps:])
+        step_loss, _ = sess.run([loss, train_step], { model.input: input_matrix,
+                                                      target: target_matrix })
 
-    print(' step {} of {} ({:.0f}%), loss: {:.2f}'
-          .format(step_idx + 1,
-                  batches_per_epoch,
-                  100 * (step_idx + 1) / batches_per_epoch,
-                  avg_step_loss) + ' ' * 5,
-          end = '\r')
+        loss_history.append(step_loss)
 
-assert len(loss_history) == batches_per_epoch
-print(' ' * 40, end = '\r')
-print(' last loss: {:.2f}'.format(avg_step_loss))
+        avg_step_loss = np.mean(loss_history[-avg_loss_steps:])
+
+        print('  step {} of {} ({:.0f}%), loss: {:.2f}'
+              .format(step_idx + 1,
+                      batches_per_epoch,
+                      100 * (step_idx + 1) / batches_per_epoch,
+                      avg_step_loss) + ' ' * 5,
+              end = '\r')
+
+    assert len(loss_history) == batches_per_epoch * (epoch_idx + 1)
+    print(' ' * 40, end = '\r')
+
+    epoch_losses = loss_history[-batches_per_epoch:]
+    print('  avg loss: {:.2f}'
+          .format(np.mean(epoch_losses)) + ' ' * 20)
+
+    print('  last loss: {:.2f}'.format(avg_step_loss))
 
 print(' training finished.')
 
