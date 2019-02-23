@@ -23,12 +23,20 @@ def usage_error(message):
     print('''
 Usage: python main.py --train-file=<train file>
                      [--train-epochs=<epoch count>]
+                     [--test-file=<test file>]
 
 Train file must be UTF-8 encoded text file where each
 line specifies token sequence pair separated with "|".
 Tokens in each sequence are separated with whitespace.
 
 If not specified, train epoch count is 1.
+
+If test file is specified, it must be UTF-8 encoded
+text file where each line specifies token sequence.
+Tokens in each sequence are separated with whitespace.
+
+If test file is not specified, standard input is used
+for inference.
 '''.strip(),
           file = sys.stderr)
     sys.exit(1)
@@ -37,7 +45,8 @@ try:
     options, args = getopt.getopt(sys.argv[1:],
                                   shortopts = '',
                                   longopts = ['train-file=',
-                                              'train-epochs='])
+                                              'train-epochs=',
+                                              'test-file='])
 except getopt.GetoptError as err:
     usage_error(err)
 
@@ -64,8 +73,12 @@ train_epochs = int(train_epochs)
 if train_epochs == 0:
     usage_error('"--train-epochs" option must not be zero.')
 
+test_file = options_dict.get('--test-file')
+if test_file is not None and not os.path.isfile(test_file):
+    usage_error('"--test-file" option must specify existing file if present.')
 
-# Read train file
+
+# Read files
 # --------------------
 
 print('Reading train text pairs...')
@@ -90,6 +103,14 @@ with open(train_file, encoding = 'utf-8') as f:
         train_text_pairs.append(text_pair)
 
 print(' {} text pairs read.'.format(len(train_text_pairs)))
+
+if test_file is not None:
+    print('Reading test lines...')
+
+    with open(test_file, encoding = 'utf-8') as f:
+        test_lines = tuple(line.rstrip('\n') for line in f)
+
+    print(' {} lines read.'.format(len(test_lines)))
 
 
 # Tokenize train file
@@ -126,6 +147,13 @@ train_tok_ids_pairs = np.array([tuple(np.array([tok_to_id[tok] for tok in toks],
                                       for tok_to_id, toks in zip(tok_to_id_pair, toks_pair))
                                 for toks_pair in train_toks_pairs], dtype = object)
 del train_toks_pairs
+
+if test_file is not None:
+    print('Tokenizing test file...')
+
+    test_tok_ids_seq = np.array([np.array([tok_to_id_pair[SOURCE_PAIR_IDX][tok] for tok in line.split()
+                                           if tok in tok_to_id_pair[SOURCE_PAIR_IDX]], dtype = np.int32)
+                                 for line in test_lines], dtype = object)
 
 
 # Helper functions for model training
@@ -256,19 +284,34 @@ print(' training finished.')
 # --------------------
 
 print('Inference using model:')
-print(' processing standard input...')
 
-for line in sys.stdin:
+if test_file is not None:
+    print(' processing test file...')
 
-    line_toks = [tok for tok in line.split()
-                 if tok in tok_to_id_pair[SOURCE_PAIR_IDX]]
-    line_tok_ids = np.array([tok_to_id_pair[SOURCE_PAIR_IDX][tok] for tok in line_toks], dtype = np.int32)
+    for start in range(0, len(test_lines), batch_size):
+        batch_tok_ids_seq = test_tok_ids_seq[start : start + batch_size]
+        batch_matrix = tok_ids_seq_to_matrix(batch_tok_ids_seq)
+        inferred_matrix = model.infer(batch_matrix)
+        inferred_lines = matrix_to_lines(inferred_matrix, tok_list_pair[1])
 
-    line_matrix = tok_ids_seq_to_matrix(line_tok_ids[np.newaxis])
-    inferred_matrix = model.infer(line_matrix)
-    [inferred_line] = matrix_to_lines(inferred_matrix, tok_list_pair[TARGET_PAIR_IDX])
+        for tok_ids, inferred_line in zip(batch_tok_ids_seq, inferred_lines):
+            print(' {} -> {}'.format(' '.join(tok_list_pair[SOURCE_PAIR_IDX][id] for id in tok_ids),
+                                    inferred_line))
 
-    print(' {} -> {}'.format(' '.join(line_toks),
-                             inferred_line))
+else:
+    print(' processing standard input...')
+
+    for line in sys.stdin:
+
+        line_toks = [tok for tok in line.split()
+                     if tok in tok_to_id_pair[SOURCE_PAIR_IDX]]
+        line_tok_ids = np.array([tok_to_id_pair[SOURCE_PAIR_IDX][tok] for tok in line_toks], dtype = np.int32)
+
+        line_matrix = tok_ids_seq_to_matrix(line_tok_ids[np.newaxis])
+        inferred_matrix = model.infer(line_matrix)
+        [inferred_line] = matrix_to_lines(inferred_matrix, tok_list_pair[TARGET_PAIR_IDX])
+
+        print(' {} -> {}'.format(' '.join(line_toks),
+                                 inferred_line))
 
 print(' processing finised.')
