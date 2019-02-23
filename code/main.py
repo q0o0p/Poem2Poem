@@ -285,13 +285,18 @@ print(' training finished.')
 
 print('Inference using model:')
 
+# Heuristic to limit inference output token count:
+max_out_tok_count = max(100, max(len(target_tok_ids)
+                                 for _, target_tok_ids in train_tok_ids_pairs) * 10)
+
 if test_file is not None:
     print(' processing test file...')
 
     for start in range(0, len(test_lines), batch_size):
         batch_tok_ids_seq = test_tok_ids_seq[start : start + batch_size]
         batch_matrix = tok_ids_seq_to_matrix(batch_tok_ids_seq)
-        inferred_matrix = model.infer(batch_matrix)
+        inferred_matrix = model.infer(batch_matrix,
+                                      max_out_tok_count = max_out_tok_count)
         inferred_lines = matrix_to_lines(inferred_matrix, tok_list_pair[1])
 
         for tok_ids, inferred_line in zip(batch_tok_ids_seq, inferred_lines):
@@ -308,7 +313,8 @@ else:
         line_tok_ids = np.array([tok_to_id_pair[SOURCE_PAIR_IDX][tok] for tok in line_toks], dtype = np.int32)
 
         line_matrix = tok_ids_seq_to_matrix(line_tok_ids[np.newaxis])
-        inferred_matrix = model.infer(line_matrix)
+        inferred_matrix = model.infer(line_matrix,
+                                      max_out_tok_count = max_out_tok_count)
         [inferred_line] = matrix_to_lines(inferred_matrix, tok_list_pair[TARGET_PAIR_IDX])
 
         print(' {} -> {}'.format(' '.join(line_toks),
