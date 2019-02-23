@@ -37,6 +37,9 @@ Tokens in each sequence are separated with whitespace.
 
 If test file is not specified, standard input is used
 for inference.
+
+Test line tokens not present in train data are ignored
+during inference.
 '''.strip(),
           file = sys.stderr)
     sys.exit(1)
