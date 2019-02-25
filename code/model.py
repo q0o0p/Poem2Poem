@@ -32,6 +32,25 @@ class Seq2SeqModel:
         self._out_eos_id = out_eos_id
         self._out_tok_count = out_tok_count
 
+
+        # Create layers
+
+        # Embeddings
+        self._emb_inp = L.Embedding(inp_tok_count,
+                                    emb_size,
+                                    name = 'InputEmbedding')
+        self._emb_out = L.Embedding(out_tok_count,
+                                    emb_size,
+                                    name = 'OutputEmbedding')
+
+        # Encoder
+        self._enc = L.GRUCell(hid_size)
+
+        # Decoder
+        self._dec = L.GRUCell(hid_size)
+        self._dec_logits = L.Dense(self._out_tok_count)
+
+
         # Create our architecture in default TF graph
         with tf.name_scope('Seq2SeqModel') as scope_name:
 
@@ -39,20 +58,6 @@ class Seq2SeqModel:
             self._inp = tf.placeholder(tf.int32, [None, None]) # [B, T]
             self._prev_token = tf.placeholder(tf.int32, [None]) # [B]
 
-            # Embeddings
-            self._emb_inp = L.Embedding(inp_tok_count,
-                                        emb_size,
-                                        name = 'InputEmbedding')
-            self._emb_out = L.Embedding(out_tok_count,
-                                        emb_size,
-                                        name = 'OutputEmbedding')
-
-            # Encoder
-            self._enc = L.GRUCell(hid_size)
-
-            # Decoder
-            self._dec = L.GRUCell(hid_size)
-            self._dec_logits = L.Dense(self._out_tok_count)
             # Set initial decoder state:
             self._dec_prev_state = self._encode() # [B, hid size]
 
