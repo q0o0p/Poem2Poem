@@ -59,10 +59,13 @@ class Seq2SeqModel:
             self._prev_token = tf.placeholder(tf.int32, [None]) # [B]
 
             # Set initial decoder state:
-            self._dec_prev_state = self._encode() # [B, hid size]
+            #  dec_prev_cell_state: [B, hid size],
+            #  enc_seq: [B, T, hid size]
+            #  inp_mask: [B, T]
+            self._dec_prev_state = self._encode()
 
             # Next state and logits for 'infer' function
-            self._next_state_and_logits = self._decode_step(self._prev_token, self._dec_prev_state) # [B, hid size], [B, out toks]
+            self._next_state_and_logits = self._decode_step(self._prev_token, self._dec_prev_state) # (dec_prev_cell_state, enc_seq, inp_mask), [B, out toks]
 
 
             # All trainable variables
@@ -86,33 +89,43 @@ class Seq2SeqModel:
 
         # self._inp: [B, T]
 
+        time_steps = tf.shape(self._inp)[1]
+
         inp_lengths = _infer_length(self._inp, self._inp_eos_id) # [B]
+        inp_mask = tf.sequence_mask(inp_lengths,
+                                    maxlen = time_steps) # [B, T]
+
         inp_emb = self._emb_inp(self._inp) # [B, T, emb size]
 
         with tf.name_scope('Encoder'):
             # enc_last: [B, hid size]
-            _, enc_last = tf.nn.dynamic_rnn(self._enc,
-                                            inp_emb,
-                                            sequence_length = inp_lengths,
-                                            dtype = inp_emb.dtype)
+            enc_seq, enc_last = tf.nn.dynamic_rnn(self._enc,
+                                                  inp_emb,
+                                                  sequence_length = inp_lengths,
+                                                  dtype = inp_emb.dtype)
 
-        return enc_last
+        return enc_last, enc_seq, inp_mask
 
 
     def _decode_step(self, prev_token, dec_prev_state):
 
         # prev_token: [B]
-        # dec_prev_state: [B, hid size]
+        # dec_prev_state:
+        #  dec_prev_cell_state: [B, hid size],
+        #  enc_seq: [B, T, hid size]
+        #  inp_mask: [B, T]
+
+        dec_prev_cell_state, enc_seq, inp_mask = dec_prev_state
 
         prev_emb = self._emb_out(prev_token[:, tf.newaxis]) # [B, 1, emb size]
         prev_emb = tf.squeeze(prev_emb, axis = 1) # [B, emb size]
 
         with tf.name_scope('Decoder'):
             # dec_out, dec_state: [B, hid size]
-            dec_out, [dec_state] = self._dec(prev_emb, states = [dec_prev_state])
+            dec_out, [dec_state] = self._dec(prev_emb, states = [dec_prev_cell_state])
             out_logits = self._dec_logits(dec_out) # [B, out toks]
 
-        return dec_state, out_logits
+        return (dec_state, enc_seq, inp_mask), out_logits
 
 
     def _compute_logits(self, target_tok_ids, target_length):
@@ -184,7 +197,7 @@ class Seq2SeqModel:
         while len(out_tok_ids) - 1 != max_out_tok_count:
 
             state, logits = sess.run(self._next_state_and_logits,
-                                     { self._dec_prev_state: state,
+                                     { **dict(zip(self._dec_prev_state, state)),
                                        self._prev_token: out_tok_ids[-1] })
             next_out_tok_id = np.argmax(logits, axis = -1)
 
