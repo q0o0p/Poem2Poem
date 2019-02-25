@@ -62,7 +62,7 @@ class Seq2SeqModel:
             self._dec_prev_state = self._encode() # [B, hid size]
 
             # Next state and logits for 'infer' function
-            self._next_state_and_logits = self._decode_step() # [B, hid size], [B, out toks]
+            self._next_state_and_logits = self._decode_step(self._prev_token, self._dec_prev_state) # [B, hid size], [B, out toks]
 
 
             # All trainable variables
@@ -99,17 +99,17 @@ class Seq2SeqModel:
         return enc_last
 
 
-    def _decode_step(self):
+    def _decode_step(self, prev_token, dec_prev_state):
 
-        # self._prev_token: [B]
-        # self._dec_prev_state: [B, hid size]
+        # prev_token: [B]
+        # dec_prev_state: [B, hid size]
 
-        prev_emb = self._emb_out(self._prev_token[:, tf.newaxis]) # [B, 1, emb size]
+        prev_emb = self._emb_out(prev_token[:, tf.newaxis]) # [B, 1, emb size]
         prev_emb = tf.squeeze(prev_emb, axis = 1) # [B, emb size]
 
         with tf.name_scope('Decoder'):
             # dec_out, dec_state: [B, hid size]
-            dec_out, [dec_state] = self._dec(prev_emb, states = [self._dec_prev_state])
+            dec_out, [dec_state] = self._dec(prev_emb, states = [dec_prev_state])
             out_logits = self._dec_logits(dec_out) # [B, out toks]
 
         return dec_state, out_logits
@@ -129,19 +129,18 @@ class Seq2SeqModel:
         first_logits = tf.log(bos_one_hot) # [1, out toks]
 
         first_logits = tf.broadcast_to(first_logits,
-                                       [batch_size, 1, self._out_tok_count]) # [B, 1, out toks]
+                                       [batch_size, self._out_tok_count]) # [B, out toks]
 
-        target_emb = self._emb_out(target_tok_ids[:, :-1]) # [B, T-1, emb size]
+        target_tok_ids = tf.transpose(target_tok_ids) # [T, B]
 
-        # dec_seq: [B, T, hid size]
-        dec_seq, _ = tf.nn.dynamic_rnn(self._dec,
-                                       target_emb,
-                                       sequence_length = target_length - 1,
-                                       initial_state = self._dec_prev_state)
+        # logits_seq: [T - 1, B, out toks]
+        _, logits_seq = tf.scan(lambda accum, elem: self._decode_step(elem, accum[0]),
+                                elems = target_tok_ids[:-1],
+                                initializer = (self._dec_prev_state, first_logits))
 
-        logits_seq = self._dec_logits(dec_seq) # [B, T - 1, out toks]
+        logits_seq = tf.concat([first_logits[tf.newaxis], logits_seq], axis = 0) # [T, B, out toks]
 
-        return tf.concat((first_logits, logits_seq), axis = 1) # [B, T, out toks]
+        return tf.transpose(logits_seq, perm = [1, 0, 2]) # [B, T, out toks]
 
 
     def compute_loss(self, target_tok_ids):
