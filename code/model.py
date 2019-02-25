@@ -143,22 +143,24 @@ class Seq2SeqModel:
 
         # target_tok_ids: [B, T]
 
-        time_steps = tf.shape(target_tok_ids)[1]
+        with tf.name_scope('Seq2SeqModel/loss'):
 
-        target_length = _infer_length(target_tok_ids, self._out_eos_id) # [B, T]
-        target_mask = tf.sequence_mask(target_length,
-                                       maxlen = time_steps) # [B, T]
+            time_steps = tf.shape(target_tok_ids)[1]
 
-        logits_seq = self._compute_logits(target_tok_ids, target_length) # [B, T, out toks]
+            target_length = _infer_length(target_tok_ids, self._out_eos_id) # [B, T]
+            target_mask = tf.sequence_mask(target_length,
+                                           maxlen = time_steps) # [B, T]
 
-        logits_seq_masked = tf.boolean_mask(logits_seq, target_mask) # [mask non-zero count, out toks]
-        target_tok_ids_masked = tf.boolean_mask(target_tok_ids, target_mask) # [mask non-zero count]
+            logits_seq = self._compute_logits(target_tok_ids, target_length) # [B, T, out toks]
 
-        # loss: [mask non-zero count]
-        loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels = target_tok_ids_masked,
-                                                              logits = logits_seq_masked)
+            logits_seq_masked = tf.boolean_mask(logits_seq, target_mask) # [mask non-zero count, out toks]
+            target_tok_ids_masked = tf.boolean_mask(target_tok_ids, target_mask) # [mask non-zero count]
 
-        return tf.reduce_mean(loss)
+            # loss: [mask non-zero count]
+            loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels = target_tok_ids_masked,
+                                                                  logits = logits_seq_masked)
+
+            return tf.reduce_mean(loss)
 
 
     def infer(self, inp_tok_ids, max_out_tok_count = None):
