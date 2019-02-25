@@ -133,7 +133,7 @@ class Seq2SeqModel:
         # First logits will only have '0' (from log(1)) and '-inf' (from log(0)) values:
         first_logits = tf.log(bos_one_hot) # [1, out toks]
 
-        first_logits = tf.broadcast_to(first_logits[tf.newaxis],
+        first_logits = tf.broadcast_to(first_logits,
                                        [batch_size, 1, self._out_tok_count]) # [B, 1, out toks]
 
         return tf.concat((first_logits, logits_seq), axis = 1) # [B, T, out toks]
