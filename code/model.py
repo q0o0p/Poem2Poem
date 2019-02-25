@@ -3,6 +3,8 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.keras.layers as L
 
+from attention_layer import AttentionLayer
+
 
 
 def _infer_length(tok_ids, eos_id):
@@ -49,6 +51,9 @@ class Seq2SeqModel:
         # Decoder
         self._dec = L.GRUCell(hid_size)
         self._dec_logits = L.Dense(self._out_tok_count)
+
+        # Attention
+        self._attention = AttentionLayer(hid_size = hid_size)
 
 
         # Create our architecture in default TF graph
@@ -117,12 +122,16 @@ class Seq2SeqModel:
 
         dec_prev_cell_state, enc_seq, inp_mask = dec_prev_state
 
+        attn = self._attention(enc_seq, dec_prev_cell_state, inp_mask)
+
         prev_emb = self._emb_out(prev_token[:, tf.newaxis]) # [B, 1, emb size]
         prev_emb = tf.squeeze(prev_emb, axis = 1) # [B, emb size]
 
+        dec_inputs = tf.concat([prev_emb, attn], axis = 1)
+
         with tf.name_scope('Decoder'):
             # dec_out, dec_state: [B, hid size]
-            dec_out, [dec_state] = self._dec(prev_emb, states = [dec_prev_cell_state])
+            dec_out, [dec_state] = self._dec(dec_inputs, states = [dec_prev_cell_state])
             out_logits = self._dec_logits(dec_out) # [B, out toks]
 
         return (dec_state, enc_seq, inp_mask), out_logits
