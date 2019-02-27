@@ -156,38 +156,10 @@ if test_file is not None:
 # Helper functions for model training
 # ----------------------------------------
 
-def tok_ids_seq_to_matrix(tok_ids_seq, vocab):
-
-    max_tok_count = max(map(len, tok_ids_seq))
-    matrix_width = max_tok_count + 2 # For BOS and EOS
-
-    matrix = np.full([len(tok_ids_seq), matrix_width],
-                      fill_value = vocab.eos_id,
-                      dtype = np.int32)
-    matrix[:, 0] = vocab.bos_id
-
-    for row_idx, tok_ids in enumerate(tok_ids_seq):
-        matrix[row_idx, 1 : 1 + len(tok_ids)] = tok_ids
-
-    return matrix
-
-def matrix_to_tok_ids_seq(matrix, vocab):
-
-    assert np.all(matrix[:, 0] == vocab.bos_id)
-
-    tok_ids_seq = []
-    for tok_ids in matrix[:, 1:]:
-        [eos_indices] = np.where(tok_ids == vocab.eos_id)
-        if len(eos_indices) != 0:
-            tok_ids = tok_ids[:eos_indices[0]]
-        tok_ids_seq.append(tok_ids)
-
-    return tok_ids_seq
-
 def matrix_to_lines(matrix, vocab):
 
     return [vocab.tok_ids_to_str(tok_ids)
-            for tok_ids in matrix_to_tok_ids_seq(matrix, vocab)]
+            for tok_ids in vocab.matrix_to_tok_ids_seq(matrix)]
 
 def iterate_train_minibatches(batch_size):
 
@@ -197,7 +169,7 @@ def iterate_train_minibatches(batch_size):
     for start in range(0, N, batch_size):
         batch_indices = indices[start : start + batch_size]
         batch_tok_ids_pairs = train_tok_ids_pairs[batch_indices]
-        batch_matrix_pair = tuple(map(tok_ids_seq_to_matrix, zip(*batch_tok_ids_pairs), vocab_pair))
+        batch_matrix_pair = tuple(map(Vocab.tok_ids_seq_to_matrix, vocab_pair, zip(*batch_tok_ids_pairs)))
         yield batch_matrix_pair
 
 
@@ -296,7 +268,7 @@ if test_file is not None:
 
     for start in range(0, len(test_lines), batch_size):
         batch_tok_ids_seq = test_tok_ids_seq[start : start + batch_size]
-        batch_matrix = tok_ids_seq_to_matrix(batch_tok_ids_seq, vocab_pair[SOURCE_PAIR_IDX])
+        batch_matrix = vocab_pair[SOURCE_PAIR_IDX].tok_ids_seq_to_matrix(batch_tok_ids_seq)
         inferred_matrix = model.infer(batch_matrix,
                                       max_out_tok_count = max_out_tok_count)
         inferred_lines = matrix_to_lines(inferred_matrix, vocab_pair[TARGET_PAIR_IDX])
@@ -320,7 +292,7 @@ else:
 
         line_tok_ids = vocab_pair[SOURCE_PAIR_IDX].toks_to_ids(line.split())
 
-        line_matrix = tok_ids_seq_to_matrix(line_tok_ids[np.newaxis], vocab_pair[SOURCE_PAIR_IDX])
+        line_matrix = vocab_pair[SOURCE_PAIR_IDX].tok_ids_seq_to_matrix(line_tok_ids[np.newaxis])
         inferred_matrix = model.infer(line_matrix,
                                       max_out_tok_count = max_out_tok_count)
         [inferred_line] = matrix_to_lines(inferred_matrix, vocab_pair[TARGET_PAIR_IDX])
