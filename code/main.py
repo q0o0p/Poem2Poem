@@ -309,6 +309,14 @@ if test_file is not None:
 else:
     print(' processing standard input...')
 
+    if os.name == 'posix':
+        eof_info = 'Ctrl-D on POSIX'
+    elif os.name == 'nt':
+        eof_info = 'Ctrl-Z followed by Return on Windows'
+    else:
+        eof_info = 'your system manual to read how'
+    print(' (send EOF to stop, use {})'.format(eof_info))
+
     for line in sys.stdin:
 
         line_toks = [tok for tok in line.split()
