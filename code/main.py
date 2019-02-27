@@ -126,7 +126,7 @@ train_toks_pairs = tuple(tuple(tuple(t.split())
                          for text_pair in train_text_pairs)
 del train_text_pairs
 
-tok_ctr_pair = (Counter(), Counter())
+tok_ctr_pair = Counter(), Counter()
 for toks_pair in train_toks_pairs:
     for tok_ctr, toks in zip(tok_ctr_pair, toks_pair):
         tok_ctr.update(toks)
@@ -134,7 +134,7 @@ for toks_pair in train_toks_pairs:
 for title, tok_ctr in zip(['source', 'target'], tok_ctr_pair):
     print(' {} unique tokens: {}'.format(title, len(tok_ctr)))
 
-special_toks = ('<BOS>', '<EOS>')
+special_toks = '<BOS>', '<EOS>'
 bos_tok_id, eos_tok_id = 0, 1
 
 SOURCE_PAIR_IDX, TARGET_PAIR_IDX = 0, 1
@@ -300,11 +300,11 @@ if test_file is not None:
         batch_matrix = tok_ids_seq_to_matrix(batch_tok_ids_seq)
         inferred_matrix = model.infer(batch_matrix,
                                       max_out_tok_count = max_out_tok_count)
-        inferred_lines = matrix_to_lines(inferred_matrix, tok_list_pair[1])
+        inferred_lines = matrix_to_lines(inferred_matrix, tok_list_pair[TARGET_PAIR_IDX])
 
         for tok_ids, inferred_line in zip(batch_tok_ids_seq, inferred_lines):
             print(' {} -> {}'.format(' '.join(tok_list_pair[SOURCE_PAIR_IDX][id] for id in tok_ids),
-                                    inferred_line))
+                                     inferred_line))
 
 else:
     print(' processing standard input...')
