@@ -4,6 +4,10 @@ import getopt
 import numpy as np
 from collections import Counter
 
+from vocab import Vocab
+from tokenizer import Tokenizer
+from seq2seq_dataset import Seq2SeqDataset
+
 
 
 # Ensure not imported
@@ -121,7 +125,7 @@ if test_file is not None:
 
 print('Tokenizing train file...')
 
-train_toks_pairs = tuple(tuple(tuple(t.split())
+train_toks_pairs = tuple(tuple(tuple(Tokenizer.line_to_toks(t))
                                for t in text_pair)
                          for text_pair in train_text_pairs)
 del train_text_pairs
@@ -134,73 +138,17 @@ for toks_pair in train_toks_pairs:
 for title, tok_ctr in zip(['source', 'target'], tok_ctr_pair):
     print(' {} unique tokens: {}'.format(title, len(tok_ctr)))
 
-special_toks = '<BOS>', '<EOS>'
-bos_tok_id, eos_tok_id = 0, 1
+src_vocab, tgt_vocab = vocab_pair = tuple(Vocab(tok_ctr.keys())
+                                          for tok_ctr in tok_ctr_pair)
 
-SOURCE_PAIR_IDX, TARGET_PAIR_IDX = 0, 1
+src_tokenizer, tgt_tokenizer = tuple(map(Tokenizer, vocab_pair))
 
-tok_list_pair = tuple(special_toks + tuple(tok_ctr.keys())
-                      for tok_ctr in tok_ctr_pair)
+dataset = Seq2SeqDataset(tokenizer_pair = (src_tokenizer, tgt_tokenizer),
+                         train_toks_pairs = train_toks_pairs,
+                         test_lines = test_lines if test_file is not None
+                                      else None)
 
-tok_to_id_pair = tuple({ tok: idx + len(special_toks) for idx, tok
-                         in enumerate(tok_list[len(special_toks):]) }
-                       for tok_list in tok_list_pair)
-
-train_tok_ids_pairs = np.array([tuple(np.array([tok_to_id[tok] for tok in toks], dtype = np.int32)
-                                      for tok_to_id, toks in zip(tok_to_id_pair, toks_pair))
-                                for toks_pair in train_toks_pairs], dtype = object)
 del train_toks_pairs
-
-if test_file is not None:
-    print('Tokenizing test file...')
-
-    test_tok_ids_seq = np.array([np.array([tok_to_id_pair[SOURCE_PAIR_IDX][tok] for tok in line.split()
-                                           if tok in tok_to_id_pair[SOURCE_PAIR_IDX]], dtype = np.int32)
-                                 for line in test_lines], dtype = object)
-
-
-# Helper functions for model training
-# ----------------------------------------
-
-def tok_ids_seq_to_matrix(tok_ids_seq):
-
-    max_tok_count = max(map(len, tok_ids_seq))
-    matrix_width = max_tok_count + 2 # For BOS and EOS
-
-    matrix = np.full([len(tok_ids_seq), matrix_width],
-                      fill_value = eos_tok_id,
-                      dtype = np.int32)
-    matrix[:, 0] = bos_tok_id
-
-    for row_idx, tok_ids in enumerate(tok_ids_seq):
-        matrix[row_idx, 1 : 1 + len(tok_ids)] = tok_ids
-
-    return matrix
-
-def matrix_to_lines(matrix, tok_list):
-
-    assert np.all(matrix[:, 0] == bos_tok_id)
-
-    lines = []
-    for tok_ids in matrix[:, 1:]:
-        [eos_indices] = np.where(tok_ids == eos_tok_id)
-        if len(eos_indices) != 0:
-            tok_ids = tok_ids[:eos_indices[0]]
-        lines.append(' '.join(tok_list[id] for id in tok_ids))
-
-    return lines
-
-def iterate_train_minibatches(batch_size):
-
-    N = len(train_tok_ids_pairs)
-    indices = np.random.permutation(np.arange(N))
-
-    for start in range(0, N, batch_size):
-        batch_indices = indices[start : start + batch_size]
-        batch_tok_ids_pairs = train_tok_ids_pairs[batch_indices]
-        batch_matrix_pair = tuple(map(tok_ids_seq_to_matrix, zip(*batch_tok_ids_pairs)))
-        yield batch_matrix_pair
-
 
 
 # Create model and optimizer
@@ -217,11 +165,8 @@ sess = tf.InteractiveSession()
 print(' creating model...')
 from model import Seq2SeqModel
 
-model = Seq2SeqModel(inp_eos_id = eos_tok_id,
-                     inp_tok_count = len(tok_list_pair[SOURCE_PAIR_IDX]),
-                     out_bos_id = bos_tok_id,
-                     out_eos_id = eos_tok_id,
-                     out_tok_count = len(tok_list_pair[TARGET_PAIR_IDX]),
+model = Seq2SeqModel(inp_vocab = src_vocab,
+                     out_vocab = tgt_vocab,
                      emb_size = 128,
                      hid_size = 256)
 
@@ -247,14 +192,14 @@ print('Begin model training...')
 batch_size = 32
 avg_loss_steps = 10
 
-batches_per_epoch = (len(train_tok_ids_pairs) + batch_size - 1) // batch_size
+batches_per_epoch = dataset.get_train_batch_count(batch_size)
 
 loss_history = []
 for epoch_idx in range(train_epochs):
 
     print(' epoch {} of {}...'.format(epoch_idx + 1, train_epochs))
 
-    for step_idx, (input_matrix, target_matrix) in enumerate(iterate_train_minibatches(batch_size)):
+    for step_idx, (input_matrix, target_matrix) in enumerate(dataset.iterate_train_minibatches(batch_size)):
 
         step_loss, _ = sess.run([loss, train_step], { model.input: input_matrix,
                                                       target: target_matrix })
@@ -289,21 +234,21 @@ print(' training finished.')
 print('Inference using model:')
 
 # Heuristic to limit inference output token count:
-max_out_tok_count = max(100, max(len(target_tok_ids)
-                                 for _, target_tok_ids in train_tok_ids_pairs) * 10)
+max_out_tok_count = max(100, dataset.max_train_target_tok_id_count * 10)
 
 if test_file is not None:
     print(' processing test file...')
 
-    for start in range(0, len(test_lines), batch_size):
-        batch_tok_ids_seq = test_tok_ids_seq[start : start + batch_size]
-        batch_matrix = tok_ids_seq_to_matrix(batch_tok_ids_seq)
+    for batch_matrix in dataset.iterate_test_minibatches(batch_size):
+
         inferred_matrix = model.infer(batch_matrix,
                                       max_out_tok_count = max_out_tok_count)
-        inferred_lines = matrix_to_lines(inferred_matrix, tok_list_pair[TARGET_PAIR_IDX])
+        inferred_lines = tgt_tokenizer.matrix_to_lines(inferred_matrix)
+
+        batch_tok_ids_seq = src_vocab.matrix_to_tok_ids_seq(batch_matrix)
 
         for tok_ids, inferred_line in zip(batch_tok_ids_seq, inferred_lines):
-            print(' {} -> {}'.format(' '.join(tok_list_pair[SOURCE_PAIR_IDX][id] for id in tok_ids),
+            print(' {} -> {}'.format(src_tokenizer.tok_ids_to_line(tok_ids),
                                      inferred_line))
 
 else:
@@ -319,16 +264,14 @@ else:
 
     for line in sys.stdin:
 
-        line_toks = [tok for tok in line.split()
-                     if tok in tok_to_id_pair[SOURCE_PAIR_IDX]]
-        line_tok_ids = np.array([tok_to_id_pair[SOURCE_PAIR_IDX][tok] for tok in line_toks], dtype = np.int32)
+        line_tok_ids = src_tokenizer.line_to_tok_ids(line)
 
-        line_matrix = tok_ids_seq_to_matrix(line_tok_ids[np.newaxis])
+        line_matrix = src_vocab.tok_ids_seq_to_matrix(line_tok_ids[np.newaxis])
         inferred_matrix = model.infer(line_matrix,
                                       max_out_tok_count = max_out_tok_count)
-        [inferred_line] = matrix_to_lines(inferred_matrix, tok_list_pair[TARGET_PAIR_IDX])
+        [inferred_line] = tgt_tokenizer.matrix_to_lines(inferred_matrix)
 
-        print(' {} -> {}'.format(' '.join(line_toks),
+        print(' {} -> {}'.format(src_tokenizer.tok_ids_to_line(line_tok_ids),
                                  inferred_line))
 
 print(' processing finised.')
