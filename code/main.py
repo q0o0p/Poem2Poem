@@ -4,6 +4,8 @@ import getopt
 import numpy as np
 from collections import Counter
 
+from vocab import Vocab
+
 
 
 # Ensure not imported
@@ -134,59 +136,52 @@ for toks_pair in train_toks_pairs:
 for title, tok_ctr in zip(['source', 'target'], tok_ctr_pair):
     print(' {} unique tokens: {}'.format(title, len(tok_ctr)))
 
-special_toks = '<BOS>', '<EOS>'
-bos_tok_id, eos_tok_id = 0, 1
-
 SOURCE_PAIR_IDX, TARGET_PAIR_IDX = 0, 1
 
-tok_list_pair = tuple(special_toks + tuple(tok_ctr.keys())
-                      for tok_ctr in tok_ctr_pair)
+vocab_pair = tuple(Vocab(tok_ctr.keys())
+                   for tok_ctr in tok_ctr_pair)
 
-tok_to_id_pair = tuple({ tok: idx + len(special_toks) for idx, tok
-                         in enumerate(tok_list[len(special_toks):]) }
-                       for tok_list in tok_list_pair)
-
-train_tok_ids_pairs = np.array([tuple(np.array([tok_to_id[tok] for tok in toks], dtype = np.int32)
-                                      for tok_to_id, toks in zip(tok_to_id_pair, toks_pair))
+train_tok_ids_pairs = np.array([tuple(np.array([vocab.tok_to_id[tok] for tok in toks], dtype = np.int32)
+                                      for vocab, toks in zip(vocab_pair, toks_pair))
                                 for toks_pair in train_toks_pairs], dtype = object)
 del train_toks_pairs
 
 if test_file is not None:
     print('Tokenizing test file...')
 
-    test_tok_ids_seq = np.array([np.array([tok_to_id_pair[SOURCE_PAIR_IDX][tok] for tok in line.split()
-                                           if tok in tok_to_id_pair[SOURCE_PAIR_IDX]], dtype = np.int32)
+    test_tok_ids_seq = np.array([np.array([vocab_pair[SOURCE_PAIR_IDX].tok_to_id[tok] for tok in line.split()
+                                           if tok in vocab_pair[SOURCE_PAIR_IDX].tok_to_id], dtype = np.int32)
                                  for line in test_lines], dtype = object)
 
 
 # Helper functions for model training
 # ----------------------------------------
 
-def tok_ids_seq_to_matrix(tok_ids_seq):
+def tok_ids_seq_to_matrix(tok_ids_seq, vocab):
 
     max_tok_count = max(map(len, tok_ids_seq))
     matrix_width = max_tok_count + 2 # For BOS and EOS
 
     matrix = np.full([len(tok_ids_seq), matrix_width],
-                      fill_value = eos_tok_id,
+                      fill_value = vocab.eos_id,
                       dtype = np.int32)
-    matrix[:, 0] = bos_tok_id
+    matrix[:, 0] = vocab.bos_id
 
     for row_idx, tok_ids in enumerate(tok_ids_seq):
         matrix[row_idx, 1 : 1 + len(tok_ids)] = tok_ids
 
     return matrix
 
-def matrix_to_lines(matrix, tok_list):
+def matrix_to_lines(matrix, vocab):
 
-    assert np.all(matrix[:, 0] == bos_tok_id)
+    assert np.all(matrix[:, 0] == vocab.bos_id)
 
     lines = []
     for tok_ids in matrix[:, 1:]:
-        [eos_indices] = np.where(tok_ids == eos_tok_id)
+        [eos_indices] = np.where(tok_ids == vocab.eos_id)
         if len(eos_indices) != 0:
             tok_ids = tok_ids[:eos_indices[0]]
-        lines.append(' '.join(tok_list[id] for id in tok_ids))
+        lines.append(' '.join(vocab.toks[id] for id in tok_ids))
 
     return lines
 
@@ -198,7 +193,7 @@ def iterate_train_minibatches(batch_size):
     for start in range(0, N, batch_size):
         batch_indices = indices[start : start + batch_size]
         batch_tok_ids_pairs = train_tok_ids_pairs[batch_indices]
-        batch_matrix_pair = tuple(map(tok_ids_seq_to_matrix, zip(*batch_tok_ids_pairs)))
+        batch_matrix_pair = tuple(map(tok_ids_seq_to_matrix, zip(*batch_tok_ids_pairs), vocab_pair))
         yield batch_matrix_pair
 
 
@@ -217,11 +212,11 @@ sess = tf.InteractiveSession()
 print(' creating model...')
 from model import Seq2SeqModel
 
-model = Seq2SeqModel(inp_eos_id = eos_tok_id,
-                     inp_tok_count = len(tok_list_pair[SOURCE_PAIR_IDX]),
-                     out_bos_id = bos_tok_id,
-                     out_eos_id = eos_tok_id,
-                     out_tok_count = len(tok_list_pair[TARGET_PAIR_IDX]),
+model = Seq2SeqModel(inp_eos_id = vocab_pair[SOURCE_PAIR_IDX].eos_id,
+                     inp_tok_count = len(vocab_pair[SOURCE_PAIR_IDX].toks),
+                     out_bos_id = vocab_pair[TARGET_PAIR_IDX].bos_id,
+                     out_eos_id = vocab_pair[TARGET_PAIR_IDX].eos_id,
+                     out_tok_count = len(vocab_pair[TARGET_PAIR_IDX].toks),
                      emb_size = 128,
                      hid_size = 256)
 
@@ -297,13 +292,13 @@ if test_file is not None:
 
     for start in range(0, len(test_lines), batch_size):
         batch_tok_ids_seq = test_tok_ids_seq[start : start + batch_size]
-        batch_matrix = tok_ids_seq_to_matrix(batch_tok_ids_seq)
+        batch_matrix = tok_ids_seq_to_matrix(batch_tok_ids_seq, vocab_pair[SOURCE_PAIR_IDX])
         inferred_matrix = model.infer(batch_matrix,
                                       max_out_tok_count = max_out_tok_count)
-        inferred_lines = matrix_to_lines(inferred_matrix, tok_list_pair[TARGET_PAIR_IDX])
+        inferred_lines = matrix_to_lines(inferred_matrix, vocab_pair[TARGET_PAIR_IDX])
 
         for tok_ids, inferred_line in zip(batch_tok_ids_seq, inferred_lines):
-            print(' {} -> {}'.format(' '.join(tok_list_pair[SOURCE_PAIR_IDX][id] for id in tok_ids),
+            print(' {} -> {}'.format(' '.join(vocab_pair[SOURCE_PAIR_IDX].toks[id] for id in tok_ids),
                                      inferred_line))
 
 else:
@@ -320,13 +315,13 @@ else:
     for line in sys.stdin:
 
         line_toks = [tok for tok in line.split()
-                     if tok in tok_to_id_pair[SOURCE_PAIR_IDX]]
-        line_tok_ids = np.array([tok_to_id_pair[SOURCE_PAIR_IDX][tok] for tok in line_toks], dtype = np.int32)
+                     if tok in vocab_pair[SOURCE_PAIR_IDX].tok_to_id]
+        line_tok_ids = np.array([vocab_pair[SOURCE_PAIR_IDX].tok_to_id[tok] for tok in line_toks], dtype = np.int32)
 
-        line_matrix = tok_ids_seq_to_matrix(line_tok_ids[np.newaxis])
+        line_matrix = tok_ids_seq_to_matrix(line_tok_ids[np.newaxis], vocab_pair[SOURCE_PAIR_IDX])
         inferred_matrix = model.infer(line_matrix,
                                       max_out_tok_count = max_out_tok_count)
-        [inferred_line] = matrix_to_lines(inferred_matrix, tok_list_pair[TARGET_PAIR_IDX])
+        [inferred_line] = matrix_to_lines(inferred_matrix, vocab_pair[TARGET_PAIR_IDX])
 
         print(' {} -> {}'.format(' '.join(line_toks),
                                  inferred_line))
