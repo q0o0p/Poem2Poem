@@ -81,11 +81,10 @@ class Seq2SeqModel:
 
         # self._inp: [B, T]
 
-        time_steps = tf.shape(self._inp)[1]
-
-        inp_length = tf_utils.infer_length(self._inp, self._inp_eos_id) # [B]
-        inp_mask = tf.sequence_mask(inp_length,
-                                    maxlen = time_steps) # [B, T]
+        # inp_length: [B]
+        # inp_mask: [B, T]
+        inp_length, inp_mask = tf_utils.infer_length_and_mask(self._inp,
+                                                              self._inp_eos_id)
 
         inp_emb = self._emb_inp(self._inp) # [B, T, emb size]
 
@@ -158,11 +157,10 @@ class Seq2SeqModel:
 
         with tf.name_scope('Seq2SeqModel/loss'):
 
-            time_steps = tf.shape(target_tok_ids)[1]
-
-            target_length = tf_utils.infer_length(target_tok_ids, self._out_eos_id) # [B]
-            target_mask = tf.sequence_mask(target_length,
-                                           maxlen = time_steps) # [B, T]
+            # target_length: [B]
+            # target_mask: [B, T]
+            target_length, target_mask = tf_utils.infer_length_and_mask(target_tok_ids,
+                                                                        self._out_eos_id)
 
             logits_seq = self._compute_logits(target_tok_ids, target_length) # [B, T, out toks]
 

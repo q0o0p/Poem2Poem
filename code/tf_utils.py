@@ -2,7 +2,7 @@ import tensorflow as tf
 
 
 
-def infer_length(tok_ids, eos_id):
+def infer_length_and_mask(tok_ids, eos_id):
 
     # tok_ids: [B, T]
 
@@ -12,5 +12,11 @@ def infer_length(tok_ids, eos_id):
                           axis = 1,
                           exclusive = True) # [B, T]
 
-    return tf.reduce_sum(equal_as_int(count_eos, 0),
-                         axis = 1) # [B]
+    length = tf.reduce_sum(equal_as_int(count_eos, 0),
+                           axis = 1) # [B]
+
+    time_steps = tf.shape(tok_ids)[1]
+    mask = tf.sequence_mask(length,
+                            maxlen = time_steps) # [B, T]
+
+    return length, mask
