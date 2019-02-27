@@ -11,24 +11,21 @@ from attention_layer import AttentionLayer
 class Seq2SeqModel:
 
     def __init__(self,
-                 inp_eos_id, inp_tok_count,
-                 out_bos_id, out_eos_id, out_tok_count,
+                 inp_vocab, out_vocab,
                  emb_size, hid_size):
 
         # Set fields
-        self._inp_eos_id = inp_eos_id
-        self._out_bos_id = out_bos_id
-        self._out_eos_id = out_eos_id
-        self._out_tok_count = out_tok_count
+        self._inp_vocab = inp_vocab
+        self._out_vocab = out_vocab
 
 
         # Create layers
 
         # Embeddings
-        self._emb_inp = L.Embedding(inp_tok_count,
+        self._emb_inp = L.Embedding(len(inp_vocab),
                                     emb_size,
                                     name = 'InputEmbedding')
-        self._emb_out = L.Embedding(out_tok_count,
+        self._emb_out = L.Embedding(len(out_vocab),
                                     emb_size,
                                     name = 'OutputEmbedding')
 
@@ -37,7 +34,7 @@ class Seq2SeqModel:
 
         # Decoder
         self._dec = L.GRUCell(hid_size)
-        self._dec_logits = L.Dense(self._out_tok_count)
+        self._dec_logits = L.Dense(len(out_vocab))
 
         # Attention
         self._attention = AttentionLayer(hid_size = hid_size)
@@ -84,7 +81,7 @@ class Seq2SeqModel:
         # inp_length: [B]
         # inp_mask: [B, T]
         inp_length, inp_mask = tf_utils.infer_length_and_mask(self._inp,
-                                                              self._inp_eos_id)
+                                                              self._inp_vocab.eos_id)
 
         inp_emb = self._emb_inp(self._inp) # [B, T, emb size]
 
@@ -131,13 +128,13 @@ class Seq2SeqModel:
         batch_size = tf.shape(target_tok_ids)[0]
 
         # Predict BOS as first logits
-        bos_one_hot = tf.one_hot(tf.fill([1], self._out_bos_id),
-                                 self._out_tok_count) # [1, out toks]
+        bos_one_hot = tf.one_hot(tf.fill([1], self._out_vocab.bos_id),
+                                 len(self._out_vocab)) # [1, out toks]
         # First logits will only have '0' (from log(1)) and '-inf' (from log(0)) values:
         first_logits = tf.log(bos_one_hot) # [1, out toks]
 
         first_logits = tf.broadcast_to(first_logits,
-                                       [batch_size, self._out_tok_count]) # [B, out toks]
+                                       [batch_size, len(self._out_vocab)]) # [B, out toks]
 
         target_tok_ids = tf.transpose(target_tok_ids) # [T, B]
 
@@ -160,7 +157,7 @@ class Seq2SeqModel:
             # target_length: [B]
             # target_mask: [B, T]
             target_length, target_mask = tf_utils.infer_length_and_mask(target_tok_ids,
-                                                                        self._out_eos_id)
+                                                                        self._out_vocab.eos_id)
 
             logits_seq = self._compute_logits(target_tok_ids, target_length) # [B, T, out toks]
 
@@ -184,7 +181,7 @@ class Seq2SeqModel:
 
         seq_count = len(inp_tok_ids)
         out_tok_ids = [np.full(seq_count,
-                               fill_value = self._out_bos_id,
+                               fill_value = self._out_vocab.bos_id,
                                dtype = np.int32)]
         finished = np.zeros(seq_count, dtype = bool)
 
@@ -197,7 +194,7 @@ class Seq2SeqModel:
 
             out_tok_ids.append(next_out_tok_id)
 
-            finished |= next_out_tok_id == self._out_eos_id
+            finished |= next_out_tok_id == self._out_vocab.eos_id
             if finished.sum() == seq_count:
                 break # Early exit if all sequences finished
 

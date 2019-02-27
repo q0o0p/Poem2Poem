@@ -186,11 +186,8 @@ sess = tf.InteractiveSession()
 print(' creating model...')
 from model import Seq2SeqModel
 
-model = Seq2SeqModel(inp_eos_id = src_vocab.eos_id,
-                     inp_tok_count = len(src_vocab),
-                     out_bos_id = tgt_vocab.bos_id,
-                     out_eos_id = tgt_vocab.eos_id,
-                     out_tok_count = len(tgt_vocab),
+model = Seq2SeqModel(inp_vocab = src_vocab,
+                     out_vocab = tgt_vocab,
                      emb_size = 128,
                      hid_size = 256)
 
