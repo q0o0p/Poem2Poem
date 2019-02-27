@@ -171,18 +171,23 @@ def tok_ids_seq_to_matrix(tok_ids_seq, vocab):
 
     return matrix
 
-def matrix_to_lines(matrix, vocab):
+def matrix_to_tok_ids_seq(matrix, vocab):
 
     assert np.all(matrix[:, 0] == vocab.bos_id)
 
-    lines = []
+    tok_ids_seq = []
     for tok_ids in matrix[:, 1:]:
         [eos_indices] = np.where(tok_ids == vocab.eos_id)
         if len(eos_indices) != 0:
             tok_ids = tok_ids[:eos_indices[0]]
-        lines.append(vocab.tok_ids_to_str(tok_ids))
+        tok_ids_seq.append(tok_ids)
 
-    return lines
+    return tok_ids_seq
+
+def matrix_to_lines(matrix, vocab):
+
+    return [vocab.tok_ids_to_str(tok_ids)
+            for tok_ids in matrix_to_tok_ids_seq(matrix, vocab)]
 
 def iterate_train_minibatches(batch_size):
 
