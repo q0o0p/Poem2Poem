@@ -5,6 +5,7 @@ import numpy as np
 from collections import Counter
 
 from vocab import Vocab
+from tokenizer import Tokenizer
 
 
 
@@ -123,7 +124,7 @@ if test_file is not None:
 
 print('Tokenizing train file...')
 
-train_toks_pairs = tuple(tuple(tuple(t.split())
+train_toks_pairs = tuple(tuple(tuple(Tokenizer.line_to_toks(t))
                                for t in text_pair)
                          for text_pair in train_text_pairs)
 del train_text_pairs
@@ -139,6 +140,8 @@ for title, tok_ctr in zip(['source', 'target'], tok_ctr_pair):
 src_vocab, tgt_vocab = vocab_pair = tuple(Vocab(tok_ctr.keys())
                                           for tok_ctr in tok_ctr_pair)
 
+src_tokenizer, tgt_tokenizer = tuple(map(Tokenizer, vocab_pair))
+
 train_tok_ids_pairs = np.array([tuple(vocab.toks_to_ids(toks)
                                       for vocab, toks in zip(vocab_pair, toks_pair))
                                 for toks_pair in train_toks_pairs], dtype = object)
@@ -147,17 +150,12 @@ del train_toks_pairs
 if test_file is not None:
     print('Tokenizing test file...')
 
-    test_tok_ids_seq = np.array([src_vocab.toks_to_ids(line.split())
+    test_tok_ids_seq = np.array([src_tokenizer.line_to_tok_ids(line)
                                  for line in test_lines], dtype = object)
 
 
 # Helper functions for model training
 # ----------------------------------------
-
-def matrix_to_lines(matrix, vocab):
-
-    return [vocab.tok_ids_to_str(tok_ids)
-            for tok_ids in vocab.matrix_to_tok_ids_seq(matrix)]
 
 def iterate_train_minibatches(batch_size):
 
@@ -266,10 +264,10 @@ if test_file is not None:
         batch_matrix = src_vocab.tok_ids_seq_to_matrix(batch_tok_ids_seq)
         inferred_matrix = model.infer(batch_matrix,
                                       max_out_tok_count = max_out_tok_count)
-        inferred_lines = matrix_to_lines(inferred_matrix, tgt_vocab)
+        inferred_lines = tgt_tokenizer.matrix_to_lines(inferred_matrix)
 
         for tok_ids, inferred_line in zip(batch_tok_ids_seq, inferred_lines):
-            print(' {} -> {}'.format(src_vocab.tok_ids_to_str(tok_ids),
+            print(' {} -> {}'.format(src_tokenizer.tok_ids_to_line(tok_ids),
                                      inferred_line))
 
 else:
@@ -285,14 +283,14 @@ else:
 
     for line in sys.stdin:
 
-        line_tok_ids = src_vocab.toks_to_ids(line.split())
+        line_tok_ids = src_tokenizer.line_to_tok_ids(line)
 
         line_matrix = src_vocab.tok_ids_seq_to_matrix(line_tok_ids[np.newaxis])
         inferred_matrix = model.infer(line_matrix,
                                       max_out_tok_count = max_out_tok_count)
-        [inferred_line] = matrix_to_lines(inferred_matrix, tgt_vocab)
+        [inferred_line] = tgt_tokenizer.matrix_to_lines(inferred_matrix)
 
-        print(' {} -> {}'.format(src_vocab.tok_ids_to_str(line_tok_ids),
+        print(' {} -> {}'.format(src_tokenizer.tok_ids_to_line(line_tok_ids),
                                  inferred_line))
 
 print(' processing finised.')
