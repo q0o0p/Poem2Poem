@@ -96,8 +96,8 @@ class Seq2SeqModel:
 
         time_steps = tf.shape(self._inp)[1]
 
-        inp_lengths = _infer_length(self._inp, self._inp_eos_id) # [B]
-        inp_mask = tf.sequence_mask(inp_lengths,
+        inp_length = _infer_length(self._inp, self._inp_eos_id) # [B]
+        inp_mask = tf.sequence_mask(inp_length,
                                     maxlen = time_steps) # [B, T]
 
         inp_emb = self._emb_inp(self._inp) # [B, T, emb size]
@@ -106,7 +106,7 @@ class Seq2SeqModel:
             # enc_last: [B, hid size]
             enc_seq, enc_last = tf.nn.dynamic_rnn(self._enc,
                                                   inp_emb,
-                                                  sequence_length = inp_lengths,
+                                                  sequence_length = inp_length,
                                                   dtype = inp_emb.dtype)
 
         return enc_last, enc_seq, inp_mask
