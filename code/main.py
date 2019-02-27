@@ -151,22 +151,6 @@ dataset = Seq2SeqDataset(tokenizer_pair = (src_tokenizer, tgt_tokenizer),
 del train_toks_pairs
 
 
-# Helper functions for model training
-# ----------------------------------------
-
-def iterate_train_minibatches(batch_size):
-
-    N = len(dataset.train_tok_ids_pairs)
-    indices = np.random.permutation(np.arange(N))
-
-    for start in range(0, N, batch_size):
-        batch_indices = indices[start : start + batch_size]
-        batch_tok_ids_pairs = dataset.train_tok_ids_pairs[batch_indices]
-        batch_matrix_pair = tuple(map(Vocab.tok_ids_seq_to_matrix, vocab_pair, zip(*batch_tok_ids_pairs)))
-        yield batch_matrix_pair
-
-
-
 # Create model and optimizer
 # ------------------------------
 
@@ -208,14 +192,14 @@ print('Begin model training...')
 batch_size = 32
 avg_loss_steps = 10
 
-batches_per_epoch = (len(dataset.train_tok_ids_pairs) + batch_size - 1) // batch_size
+batches_per_epoch = dataset.get_train_batch_count(batch_size)
 
 loss_history = []
 for epoch_idx in range(train_epochs):
 
     print(' epoch {} of {}...'.format(epoch_idx + 1, train_epochs))
 
-    for step_idx, (input_matrix, target_matrix) in enumerate(iterate_train_minibatches(batch_size)):
+    for step_idx, (input_matrix, target_matrix) in enumerate(dataset.iterate_train_minibatches(batch_size)):
 
         step_loss, _ = sess.run([loss, train_step], { model.input: input_matrix,
                                                       target: target_matrix })
@@ -250,18 +234,18 @@ print(' training finished.')
 print('Inference using model:')
 
 # Heuristic to limit inference output token count:
-max_out_tok_count = max(100, max(len(target_tok_ids)
-                                 for _, target_tok_ids in dataset.train_tok_ids_pairs) * 10)
+max_out_tok_count = max(100, dataset.max_train_target_tok_id_count * 10)
 
 if test_file is not None:
     print(' processing test file...')
 
-    for start in range(0, len(test_lines), batch_size):
-        batch_tok_ids_seq = dataset.test_tok_ids_seq[start : start + batch_size]
-        batch_matrix = src_vocab.tok_ids_seq_to_matrix(batch_tok_ids_seq)
+    for batch_matrix in dataset.iterate_test_minibatches(batch_size):
+
         inferred_matrix = model.infer(batch_matrix,
                                       max_out_tok_count = max_out_tok_count)
         inferred_lines = tgt_tokenizer.matrix_to_lines(inferred_matrix)
+
+        batch_tok_ids_seq = src_vocab.matrix_to_tok_ids_seq(batch_matrix)
 
         for tok_ids, inferred_line in zip(batch_tok_ids_seq, inferred_lines):
             print(' {} -> {}'.format(src_tokenizer.tok_ids_to_line(tok_ids),
