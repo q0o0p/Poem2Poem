@@ -173,7 +173,7 @@ class Seq2SeqModel:
 
             time_steps = tf.shape(target_tok_ids)[1]
 
-            target_length = _infer_length(target_tok_ids, self._out_eos_id) # [B, T]
+            target_length = _infer_length(target_tok_ids, self._out_eos_id) # [B]
             target_mask = tf.sequence_mask(target_length,
                                            maxlen = time_steps) # [B, T]
 
