@@ -141,7 +141,7 @@ SOURCE_PAIR_IDX, TARGET_PAIR_IDX = 0, 1
 vocab_pair = tuple(Vocab(tok_ctr.keys())
                    for tok_ctr in tok_ctr_pair)
 
-train_tok_ids_pairs = np.array([tuple(np.array([vocab.tok_to_id[tok] for tok in toks], dtype = np.int32)
+train_tok_ids_pairs = np.array([tuple(vocab.toks_to_ids(toks)
                                       for vocab, toks in zip(vocab_pair, toks_pair))
                                 for toks_pair in train_toks_pairs], dtype = object)
 del train_toks_pairs
@@ -149,8 +149,7 @@ del train_toks_pairs
 if test_file is not None:
     print('Tokenizing test file...')
 
-    test_tok_ids_seq = np.array([np.array([vocab_pair[SOURCE_PAIR_IDX].tok_to_id[tok] for tok in line.split()
-                                           if tok in vocab_pair[SOURCE_PAIR_IDX].tok_to_id], dtype = np.int32)
+    test_tok_ids_seq = np.array([vocab_pair[SOURCE_PAIR_IDX].toks_to_ids(line.split())
                                  for line in test_lines], dtype = object)
 
 
@@ -181,7 +180,7 @@ def matrix_to_lines(matrix, vocab):
         [eos_indices] = np.where(tok_ids == vocab.eos_id)
         if len(eos_indices) != 0:
             tok_ids = tok_ids[:eos_indices[0]]
-        lines.append(' '.join(vocab.toks[id] for id in tok_ids))
+        lines.append(vocab.tok_ids_to_str(tok_ids))
 
     return lines
 
@@ -213,10 +212,10 @@ print(' creating model...')
 from model import Seq2SeqModel
 
 model = Seq2SeqModel(inp_eos_id = vocab_pair[SOURCE_PAIR_IDX].eos_id,
-                     inp_tok_count = len(vocab_pair[SOURCE_PAIR_IDX].toks),
+                     inp_tok_count = len(vocab_pair[SOURCE_PAIR_IDX]),
                      out_bos_id = vocab_pair[TARGET_PAIR_IDX].bos_id,
                      out_eos_id = vocab_pair[TARGET_PAIR_IDX].eos_id,
-                     out_tok_count = len(vocab_pair[TARGET_PAIR_IDX].toks),
+                     out_tok_count = len(vocab_pair[TARGET_PAIR_IDX]),
                      emb_size = 128,
                      hid_size = 256)
 
@@ -298,7 +297,7 @@ if test_file is not None:
         inferred_lines = matrix_to_lines(inferred_matrix, vocab_pair[TARGET_PAIR_IDX])
 
         for tok_ids, inferred_line in zip(batch_tok_ids_seq, inferred_lines):
-            print(' {} -> {}'.format(' '.join(vocab_pair[SOURCE_PAIR_IDX].toks[id] for id in tok_ids),
+            print(' {} -> {}'.format(vocab_pair[SOURCE_PAIR_IDX].tok_ids_to_str(tok_ids),
                                      inferred_line))
 
 else:
@@ -314,16 +313,14 @@ else:
 
     for line in sys.stdin:
 
-        line_toks = [tok for tok in line.split()
-                     if tok in vocab_pair[SOURCE_PAIR_IDX].tok_to_id]
-        line_tok_ids = np.array([vocab_pair[SOURCE_PAIR_IDX].tok_to_id[tok] for tok in line_toks], dtype = np.int32)
+        line_tok_ids = vocab_pair[SOURCE_PAIR_IDX].toks_to_ids(line.split())
 
         line_matrix = tok_ids_seq_to_matrix(line_tok_ids[np.newaxis], vocab_pair[SOURCE_PAIR_IDX])
         inferred_matrix = model.infer(line_matrix,
                                       max_out_tok_count = max_out_tok_count)
         [inferred_line] = matrix_to_lines(inferred_matrix, vocab_pair[TARGET_PAIR_IDX])
 
-        print(' {} -> {}'.format(' '.join(line_toks),
+        print(' {} -> {}'.format(vocab_pair[SOURCE_PAIR_IDX].tok_ids_to_str(line_tok_ids),
                                  inferred_line))
 
 print(' processing finised.')
