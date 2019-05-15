@@ -8,7 +8,7 @@ from attention_layer import AttentionLayer
 
 
 
-class Seq2SeqModel:
+class TranslationModel:
 
     def __init__(self,
                  inp_vocab, out_vocab,
@@ -41,7 +41,7 @@ class Seq2SeqModel:
 
 
         # Create our architecture in default TF graph
-        with tf.name_scope('Seq2SeqModel') as scope_name:
+        with tf.name_scope('TranslationModel') as scope_name:
 
             # Placeholders
             self._inp = tf.placeholder(tf.int32, [None, None]) # [B, T]
@@ -152,7 +152,7 @@ class Seq2SeqModel:
 
         # target_tok_ids: [B, T]
 
-        with tf.name_scope('Seq2SeqModel/loss'):
+        with tf.name_scope('TranslationModel/loss'):
 
             # target_length: [B]
             # target_mask: [B, T]

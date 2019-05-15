@@ -6,7 +6,7 @@ from collections import Counter
 
 from vocab import Vocab
 from tokenizer import Tokenizer
-from seq2seq_dataset import Seq2SeqDataset
+from translation_dataset import TranslationDataset
 
 
 
@@ -143,7 +143,7 @@ src_vocab, tgt_vocab = vocab_pair = tuple(Vocab(tok_ctr.keys())
 
 src_tokenizer, tgt_tokenizer = tuple(map(Tokenizer, vocab_pair))
 
-dataset = Seq2SeqDataset(tokenizer_pair = (src_tokenizer, tgt_tokenizer),
+dataset = TranslationDataset(tokenizer_pair = (src_tokenizer, tgt_tokenizer),
                          train_toks_pairs = train_toks_pairs,
                          test_lines = test_lines if test_file is not None
                                       else None)
@@ -163,9 +163,9 @@ print(' creating session...')
 sess = tf.InteractiveSession()
 
 print(' creating model...')
-from model import Seq2SeqModel
+from translation_model import TranslationModel
 
-model = Seq2SeqModel(inp_vocab = src_vocab,
+model = TranslationModel(inp_vocab = src_vocab,
                      out_vocab = tgt_vocab,
                      emb_size = 128,
                      hid_size = 256)

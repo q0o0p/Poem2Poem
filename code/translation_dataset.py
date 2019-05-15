@@ -4,7 +4,7 @@ from vocab import Vocab
 
 
 
-class Seq2SeqDataset:
+class TranslationDataset:
 
     def __init__(self,
                  tokenizer_pair,
