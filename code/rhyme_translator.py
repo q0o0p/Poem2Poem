@@ -10,12 +10,25 @@ from rhyme_testers import RuReversedSuffixRhymeTester, RuReversedWordRhymeTester
 def get_reversed(line):
     return ''.join(reversed(line))
 
+_russian_vowels = 'аеёиоуыэюя'
+
+def _count_syllables_russian(line):
+    return sum(c in _russian_vowels for c in line)
+
+def _make_stresses(line):
+    return [i % 2 == 1 for i in range(_count_syllables_russian(line))]
+
 
 RHYME_DEBUG_PRINT = False # 1, 2 or 3 for more debug info
+METER_DEBUG_PRINT = False
 
 def set_rhyme_debug_print(level):
     global RHYME_DEBUG_PRINT
     RHYME_DEBUG_PRINT = level
+
+def set_meter_debug_print(level):
+    global METER_DEBUG_PRINT
+    METER_DEBUG_PRINT = level
 
 class RhymeType(Enum):
     SUFFIX = 1
@@ -60,10 +73,10 @@ class RhymeTranslator(object):
         return logits
 
 
-    def translate_lines(self,
-                        lines,
-                        sample_temperature = 0,
-                        max_len = 100):
+    def _translate_lines_impl(self,
+                              lines,
+                              sample_temperature = 0,
+                              max_len = 100):
 
         state = self._model.make_initial_state(lines)
 
@@ -90,6 +103,93 @@ class RhymeTranslator(object):
 
         return self._model_tokens_to_lines(outputs)
 
+    def _get_meter_costs(self,
+                         lines,
+                         syllables = None,
+                         total = False):
+
+        if syllables is not None:
+
+            def enforce_syllables(line):
+
+                vowels_to_remove = _count_syllables_russian(line) - syllables
+                if vowels_to_remove <= 0:
+                    return line
+
+                for i, c in enumerate(line):
+                    if c in _russian_vowels:
+                        vowels_to_remove -= 1
+                        if vowels_to_remove == 0:
+                            return line[i + 1:]
+
+                assert False
+
+            lines_for_meter = list(map(enforce_syllables, lines))
+
+            lines_with_not_enough_syllables = [int(_count_syllables_russian(l) < syllables) for l in lines]
+        else:
+            lines_for_meter = lines
+
+        costs = self._model.get_meter_costs(lines,
+                                           list(map(_make_stresses, lines)))
+
+        if total:
+            total_cost = costs.sum().item()
+
+            if syllables is not None:
+                return sum(lines_with_not_enough_syllables), total_cost
+
+            return total_cost
+
+        if syllables is not None:
+            return list(zip(lines_with_not_enough_syllables, costs))
+
+        return costs
+
+    def translate_lines(self,
+                        lines,
+                        sample_temperature = 0,
+                        max_len = 100,
+                        stresses_attempts = 0,
+                        stress_syllables = None):
+
+        if stresses_attempts:
+            assert stresses_attempts != 1
+            assert sample_temperature != 0
+        else:
+            assert stress_syllables is None
+
+        get_translation = lambda: self._translate_lines_impl(lines, sample_temperature, max_len)
+
+        if not stresses_attempts:
+            return get_translation()
+
+        lines_translations = list(map(list, zip(*[get_translation() for _ in range(stresses_attempts)])))
+
+
+        lines_translation_costs = [self._get_meter_costs(line_translations, syllables = stress_syllables)
+                                   for line_translations in lines_translations]
+
+        lines_translations_with_costs = [list(zip(line_translations, line_translation_costs))
+                                         for line_translations, line_translation_costs
+                                         in zip(lines_translations, lines_translation_costs)]
+
+        if METER_DEBUG_PRINT:
+            print('Meter translation costs:')
+            for line_translations_with_costs in lines_translations_with_costs:
+                for translation, cost in line_translations_with_costs:
+                    if type(cost) == tuple:
+                        print('{}-'.format(cost[0]), end = '')
+                        cost = cost[1]
+                    print('{:6.2f} : {}'.format(cost, translation))
+                print()
+            print()
+
+        lines_translations_with_min_costs = [min(line_translations_with_costs, key = lambda p: p[1])[0]
+                                             for line_translations_with_costs
+                                             in lines_translations_with_costs]
+
+        return lines_translations_with_min_costs
 
 
     def _translate_lines_in_rhyme(self,
@@ -248,9 +348,9 @@ class RhymeTranslator(object):
 
         if RHYME_DEBUG_PRINT:
             print('*** DEBUG: Failed to find rhyme. ***') # DEBUG
-        return self.translate_lines(lines,
-                                    sample_temperature,
-                                    max_len)
+        return self._translate_lines_impl(lines,
+                                          sample_temperature,
+                                          max_len)
 
 
     def translate_lines_with_rhyme(self,
@@ -259,7 +359,15 @@ class RhymeTranslator(object):
                                    sample_temperature = 0,
                                    max_len = 100,
                                    rhyme_test_counts = (10, 10),
-                                   max_total_rhyme_tests = 1000):
+                                   max_total_rhyme_tests = 1000,
+                                   stresses_attempts = 0,
+                                   stress_syllables = None):
+
+        if stresses_attempts:
+            assert stresses_attempts != 1
+            assert sample_temperature != 0
+        else:
+            assert stress_syllables is None
 
         if rhyme_type == RhymeType.SUFFIX:
             rhyme_tester = self._suffix_rhyme_tester
@@ -273,16 +381,46 @@ class RhymeTranslator(object):
 
             pair_lines = lines[pair_idx * 2 : (pair_idx + 1) * 2]
 
-            translated += self._translate_lines_in_rhyme(pair_lines,
-                                                         rhyme_tester,
-                                                         sample_temperature,
-                                                         max_len,
-                                                         rhyme_test_counts,
-                                                         max_total_rhyme_tests)
+            get_pair_translation = lambda: self._translate_lines_in_rhyme(pair_lines,
+                                                                          rhyme_tester,
+                                                                          sample_temperature,
+                                                                          max_len,
+                                                                          rhyme_test_counts,
+                                                                          max_total_rhyme_tests)
+
+            if stresses_attempts:
+
+                pair_translations = [get_pair_translation() for _ in range(stresses_attempts)]
+
+                pair_translation_costs = [self._get_meter_costs(pair_trans, syllables = stress_syllables, total = True)
+                                          for pair_trans in pair_translations]
+
+                if METER_DEBUG_PRINT:
+                    print('Meter pair translation costs:')
+                    for pair_translation, cost in zip(pair_translations, pair_translation_costs):
+                        for i, translation in enumerate(pair_translation):
+                            if i == 0:
+                                if type(cost) == tuple:
+                                    print('{}-'.format(cost[0]), end = '')
+                                    cost = cost[1]
+                                print('{:6.2f} : {}'.format(cost, translation))
+                            else:
+                                print('{:6} : {}'.format('', translation))
+                        print()
+                    print()
+
+                pair_translation, _ = min(zip(pair_translations, pair_translation_costs), key = lambda p: p[1])
+
+            else:
+                pair_translation = get_pair_translation()
+
+            translated += pair_translation
 
         if len(lines) % 2 == 1:
-            translated.append(self.translate_lines(lines[-1:]
+            translated.append(self.translate_lines(lines[-1:],
                                                    sample_temperature = sample_temperature,
-                                                   max_len = max_len)[0])
+                                                   max_len = max_len,
+                                                   stresses_attempts = stresses_attempts,
+                                                   stress_syllables = stress_syllables)[0])
 
         return translated

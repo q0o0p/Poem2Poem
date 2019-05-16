@@ -17,6 +17,13 @@ class ITranslationModel(object):
         '''
         raise Exception('Not implemented')
 
+    def get_meter_costs(self, lines, stresses):
+        '''
+        Accepts array of lines and array of expected stresses.
+        Returns meter cost for each line.
+        '''
+        raise Exception('Not implemented')
+
     def get_output_tokenizer(self):
         '''
         Return output tokenizer used in model.

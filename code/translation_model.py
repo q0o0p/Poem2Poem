@@ -7,6 +7,8 @@ from keras import backend as K
 from translation_model_interface import ITranslationModel
 from tf_utils import get_scope_trainable_variables, infer_length, infer_mask
 from config_base import ConfigBase
+from ru_char_encoder import RuCharEncoder
+from meter_model import MeterModel
 from attention_layer import AttentionLayer
 
 
@@ -18,7 +20,10 @@ class TranslationModel(ITranslationModel):
                              kwargs,
                              batch_size = None,
                              emb_size = None,
-                             hid_size = None)
+                             hid_size = None,
+                             #attn_size = None,
+                             ru_char_encoder_config = RuCharEncoder.Config,
+                             meter_config = MeterModel.Config)
 
     def __init__(self, sess = None, filename = None, name = None, inp_tokenizer = None, out_tokenizer = None, config = None):
 
@@ -68,11 +73,22 @@ class TranslationModel(ITranslationModel):
             self.attention = AttentionLayer(name = 'attention',
                                             hid_size = 2 * cfg.hid_size)
 
+            self._ru_char_encoder = RuCharEncoder(name = 'ru_char_encoder',
+                                                  config = cfg.ru_char_encoder_config,
+                                                  is_training = True)
+
+            self.meter_model = MeterModel(name = 'meter',
+                                          config = cfg.meter_config,
+                                          batch_size = cfg.batch_size,
+                                          is_training = True,
+                                          ru_char_encoder = self._ru_char_encoder)
+
             # prepare to translate_lines
             self.inp = tf.placeholder('int32', [None, None])
             self.initial_state = self.prev_state = self.encode(self.inp)
             self.prev_tokens = tf.placeholder('int32', [None])
-            self.next_state, self.next_logits = self.decode(self.prev_state, self.prev_tokens)
+            self.prev_char_tokens = tf.placeholder('int32', [None, None])
+            self.next_state, self.next_logits = self.decode(self.prev_state, self.prev_tokens, self.prev_char_tokens)
             self.next_softmax = tf.nn.softmax(self.next_logits)
 
             self.trainable_variables = get_scope_trainable_variables()
@@ -84,6 +100,15 @@ class TranslationModel(ITranslationModel):
         # will be rewritten after training e.g. when 'get_weights' is
         # called.
         K.get_session()
+
+    def to_out_char_matrix(self, out_tok_matrix, max_matrix_depth = None):
+        return self._ru_char_encoder.tok_matrix_to_char_matrix(self.out_voc, out_tok_matrix, max_matrix_depth)
+
+    def to_meter_inp_char_matrix(self, inp_lines, max_matrix_width = None):
+        return self._ru_char_encoder.lines_to_char_matrix(inp_lines, max_matrix_width)
+
+    def to_meter_out_stress_matrix(self, stress_lines):
+        return self.meter_model.to_stress_matrix(stress_lines)
 
     def encode(self, inp, **flags):
         """
@@ -128,11 +153,12 @@ class TranslationModel(ITranslationModel):
         first_state = [dec_start, enc_seq, inp_mask, first_attn_probas]
         return first_state
 
-    def decode(self, prev_state, prev_tokens):
+    def decode(self, prev_state, prev_tokens, prev_char_tokens):
         """
         Takes previous decoder state and tokens, returns new state and logits
         :param prev_state: a list of previous decoder state tensors
         :param prev_tokens: previous output tokens, an int vector of [batch_size]
+        :param prev_char_tokens: previous output tokens, an int vector of [batch_size, max_tok_len_in_chars]
         :return: a list of next decoder state tensors, a tensor of logits [batch,n_tokens]
         """
         # Unpack your state: you will get tensors in the same order
@@ -150,7 +176,9 @@ class TranslationModel(ITranslationModel):
 
         prev_emb = self.emb_out(prev_tokens[:, tf.newaxis])[:,0]
 
-        dec_inputs = tf.concat([prev_emb, next_attn_response], axis = 1)
+        _, prev_char_hid = self._ru_char_encoder.encode(prev_char_tokens)
+
+        dec_inputs = tf.concat([prev_emb, prev_char_hid, next_attn_response], axis = 1)
         with tf.variable_scope('dec0'):
             new_dec_out, new_dec_state = self.dec0(dec_inputs, prev_dec)
         output_logits = self.logits(self.activ(self.dense(new_dec_out)))
@@ -164,7 +192,7 @@ class TranslationModel(ITranslationModel):
         return next_state, output_logits
 
 
-    def compute_logits(self, inp, out):
+    def compute_logits(self, inp, out, out_char):
 
         batch_size = tf.shape(inp)[0]
 
@@ -176,17 +204,17 @@ class TranslationModel(ITranslationModel):
                                          len(self.out_voc)) + 1e-30)
 
         # Decode step
-        def step(prev_state, y_prev):
+        def step(prev_state, y_prev, y_char_prev):
             # Given previous state, obtain next state and next token logits
-            next_dec_state, next_logits = self.decode(prev_state, y_prev)
+            next_dec_state, next_logits = self.decode(prev_state, y_prev, y_char_prev)
             return next_dec_state, next_logits
 
         # You can now use tf.scan to run step several times.
         # use tf.transpose(out) as elems (to process one time-step at a time)
         # docs: https://www.tensorflow.org/api_docs/python/tf/scan
 
-        out = tf.scan(lambda a, y: step(a[0], y),
-                      elems = tf.transpose(out)[:-1],
+        out = tf.scan(lambda a, y: step(a[0], y[0], y[1]),
+                      elems = (tf.transpose(out)[:-1], tf.transpose(out_char, [1, 0, 2])[:-1]),
                       initializer = (first_state, first_logits))
 
 
@@ -204,10 +232,10 @@ class TranslationModel(ITranslationModel):
 
         return logits_seq
 
-    def compute_loss(self, inp, out):
+    def compute_loss(self, inp, out, out_char):
 
         mask = infer_mask(out, self.out_voc.eos_ix) # [B, T]
-        logits_seq = self.compute_logits(inp, out) # [B, T, tokens]
+        logits_seq = self.compute_logits(inp, out, out_char) # [B, T, tokens]
 
         logits_seq_masked = tf.boolean_mask(logits_seq, mask) # [mask non-zero count, tokens]
         out_masked = tf.boolean_mask(out, mask) # [mask non-zero count]
@@ -231,10 +259,54 @@ class TranslationModel(ITranslationModel):
             prev_tokens = np.array([out[-1] for out in outputs], dtype = np.int32)
         else:
             prev_tokens = outputs[:, -1]
+        prev_char_tokens = np.squeeze(self.to_out_char_matrix(prev_tokens[:, np.newaxis]), axis = 1)
 
         return self.sess.run([self.next_state, self.next_logits],
                              {**dict(zip(self.prev_state, state)),
-                              self.prev_tokens: prev_tokens})
+                              self.prev_tokens: prev_tokens,
+                              self.prev_char_tokens: prev_char_tokens})
+
+    def _get_meter_costs_fixed_batch(self, lines, stresses):
+
+        assert len(lines) == len(stresses) == self.config.batch_size
+
+        meter_inp = self.meter_model.get_input()
+        meter_out = self.meter_model.get_output()
+
+        feed_dict = {
+            meter_inp: self.to_meter_inp_char_matrix(lines),
+            meter_out: self.to_meter_out_stress_matrix(stresses)
+        }
+
+        return self.sess.run(self.meter_model.pm_costs, feed_dict)
+
+    def get_meter_costs(self, lines, stresses):
+
+        assert len(lines) == len(stresses)
+        assert type(lines) == type(stresses) == list
+
+        line_costs = []
+
+        batch_size = self.config.batch_size
+        for i in range(0, len(lines), batch_size):
+            batch_lines = lines[i : i + batch_size]
+            batch_stresses = stresses[i : i + batch_size]
+
+            pad_len = 0
+            if len(batch_lines) < batch_size:
+                pad_len = batch_size - len(batch_lines)
+                batch_lines += [''] * pad_len
+                batch_stresses += [batch_stresses[-1]] * pad_len
+
+            batch_costs = self._get_meter_costs_fixed_batch(batch_lines, batch_stresses)
+            if pad_len:
+                batch_costs = batch_costs[:-pad_len]
+            line_costs.append(batch_costs)
+
+        line_costs = np.hstack(line_costs)
+        assert len(line_costs) == len(lines)
+
+        return line_costs
 
     def get_output_tokenizer(self):
         return self.out_tokenizer
