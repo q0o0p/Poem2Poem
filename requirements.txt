@@ -1,2 +1,6 @@
 numpy
 tensorflow >= 1.12.1
+keras
+subword_nmt
+rupo
+tqdm
